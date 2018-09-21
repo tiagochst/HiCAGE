@@ -7,8 +7,9 @@ segmentation and RNA data}
 \usage{
 overlap(hicfile, segmentfile, rnafile, bio_mart = "ensembl",
   martset = "hsapiens_gene_ensembl", webhost = "www.ensembl.org",
-  hic.columns = c(1:6, 8), segment.columns = c(1:5), rna.columns = c(1,
-  7), manual.priority = NULL, prune.priority = NULL)
+  hic.columns = c(1:6, 8), segment.columns = c(1:5),
+  rna.columns = c(1, 7), manual.priority = NULL,
+  prune.priority = NULL)
 }
 \arguments{
 \item{hicfile}{The chromosome conformation capture datafile}

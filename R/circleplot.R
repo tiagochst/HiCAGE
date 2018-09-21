@@ -16,7 +16,7 @@
 #' @importFrom circlize chordDiagram circos.clear circos.rect
 #' circos.trackPlotRegion colorRamp2 circos.par get.cell.meta.data
 #' circos.text
-#' @importFrom dplyr left_join
+#' @importFrom dplyr left_join filter
 #' @importFrom stats setNames aggregate
 #' @importFrom plotrix color.gradient color.legend
 #' @import grDevices
@@ -39,7 +39,8 @@ circleplot <- function(datatable,
                        plot.subset = FALSE,
                        display.legend = TRUE,
                        hic.legend = "Avg. Hi-C Score",
-                       hic.range = c(0, 130),
+                       hic.range = NULL,
+                       region = NULL,
                        rna.legend = "Avg. log(FPKM)",
                        rna.range = c(0, 3.2),
                        circos.color = NULL,
@@ -64,207 +65,244 @@ circleplot <- function(datatable,
                                        "HiCscore"))
   }
 
+
+  # Filter connections by hic-range
+  if(!is.null(hic.range)){
+    datatable <- datatable %>%
+      dplyr::filter(segscore1 > min(hic.range) & segscore1 < max(hic.range) )  %>%
+      dplyr::filter(segscore2 > min(hic.range) & segscore2 < max(hic.range))
+  } else {
+    hic.range <- c(0, 130)
+  }
+  print(head(datatable))
+
+    # Filter connections by region
+  if(!is.null(region) & stringr::str_length(region) > 0){
+    chr <- unlist(stringr::str_split(region,":|-"))[1]
+    start <- unlist(stringr::str_split(region,":|-"))[2]
+    end <- unlist(stringr::str_split(region,":|-"))[3]
+    print(chr)
+    print(start)
+    print(end)
+    datatable <- datatable %>%
+      dplyr::filter(region1chrom %in% c(chr,gsub("chr","",chr)) & region1start > as.numeric(start) & region1end <  as.numeric(end))  %>%
+      dplyr::filter(region2chrom %in% c(chr,gsub("chr","",chr)) & region2start >  as.numeric(start) & region2end <  as.numeric(end))
+  }
+
+
+  if(nrow(datatable) == 0){
+    return(NULL)
+  }
+
+
+
   finaltable <- (table(datatable$mark1, datatable$mark2))
 
-  #Data frame for circos plot
+
+  # Data frame for circos plot
   circosR <- data.frame(finaltable)
   circosR <- setNames(circosR, c("mark1", "mark2", "Freq"))
 
-  #Compute average scores for each group of interactions
+  # Compute average scores for each group of interactions
   scoretable <- aggregate(HiCscore~mark1 + mark2, data = datatable, FUN = mean)
   colnames(scoretable)[3] <- "Avg.Score"
 
-  #Generate table for Heatmap
+  # Generate table for Heatmap
   circosR$mark1 <- as.character(circosR$mark1)
   circosR$mark2 <- as.character(circosR$mark2)
   heatmap <- left_join(circosR, scoretable, by = c("mark1", "mark2"))
 
+
   if (plot.subset == TRUE) {
-  circos.clear()
-  par(pty="s")
-  circos.par(points.overflow.warning=FALSE,
-             track.margin = c(0, 0))
+    circos.clear()
+    par(pty="s")
+    circos.par(points.overflow.warning=FALSE,
+               track.margin = c(0, 0))
 
-  chordDiagram(circosR,
-               circos.par(track.margin = c(0.005, 0.005)),
-               grid.col = circos.color,
-               annotationTrack = "grid",
-               preAllocateTracks = 2,
-               ...)
+    chordDiagram(circosR,
+                 circos.par(track.margin = c(0.005, 0.005)),
+                 grid.col = circos.color,
+                 annotationTrack = "grid",
+                 preAllocateTracks = 2,
+                 ...)
 
-  circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) {
-    xlim = get.cell.meta.data("xlim")
-    ylim = get.cell.meta.data("ylim")
-    sector.name = get.cell.meta.data("sector.index")
-    circos.text(mean(xlim), ylim[1],
-                sector.name,
-                facing = "clockwise",
-                niceFacing = TRUE,
-                adj = c(0.3, 0.3),
-                cex = 0.8)
-  }
-  , bg.border = NA)
-  #Add heatmap to chord diagram
-  col_fun = colorRamp2(hic.range,
-                       c("white", "red"))
-
-  tab1 <- heatmap[order(heatmap$mark1,rev(heatmap$mark2)),]
-  tab1[is.na(tab1)] <- 0
-  tab2 <- heatmap[order(heatmap$mark2,rev(heatmap$mark1)),]
-  tab2[is.na(tab2)] <- 0
-  tab3 <- tab1[,c(2,1,3,4)]
-  colnames(tab3) [1] <- "mark1"
-  colnames(tab3) [2] <- "mark2"
-  tab3$Freq <- 0
-  tab1 <- rbind(tab1, tab3)
-  tab2 <- rbind(tab2, tab3)
-
-  circos.trackPlotRegion(ylim = c(0, 3),
-                         circos.par("track.height" = 0.01),
-                         bg.border = NA,
-                         track.index = 2,
-                         panel.fun = function(x, y) {
-                           end <- 0
-                           sector = get.cell.meta.data("sector.index")
-                           aux.tab1 <- tab1[tab1$mark1 == sector,]
-                           aux.tab2 <- tab2[tab2$mark2 == sector,]
-                           col_tab1 = col_fun(aux.tab1$Avg.Score)
-                           col_tab2 = col_fun(aux.tab2$Avg.Score)
-                           for(i in 1:nrow(aux.tab1)){
-                             start <- end
-                             end <- end + aux.tab1[i,"Freq"]
-                             circos.rect(start, 0, end, 2,
-                                         border = col_tab1[i],
-                                         col = col_tab1[i],
-                                         sector.index = sector,
-                                         track.index = 2)
-                           }
-                           for(i in 1:nrow(aux.tab2)){
-                             start <- end
-                             end <- end + aux.tab2[i,"Freq"]
-                             circos.rect(start, 0, end, 2,
-                                         border = col_tab2[i],
-                                         col = col_tab2[i],
-                                         sector.index = sector,
-                                         track.index = 2)
-                           }
-                           end <- 0
-                         })
-  }
-  else {
-  #Draw chord diagram
-  FPKM1score <- aggregate(logFPKM1~mark1 + mark2, data = datatable, FUN = mean)
-  FPKM2score <- aggregate(logFPKM2~mark1 + mark2, data = datatable, FUN = mean)
-  heatmap <- left_join(heatmap, FPKM1score, by = c("mark1", "mark2"))
-  heatmap <- left_join(heatmap, FPKM2score, by = c("mark1", "mark2"))
-  circos.clear()
-  par(pty="s")
-  circos.par(points.overflow.warning=FALSE,
-             track.margin = c(0, 0))
-
-  chordDiagram(circosR,
-               circos.par(track.margin = c(0.005, 0.005)),
-               grid.col = circos.color,
-               annotationTrack = "grid",
-               preAllocateTracks = 3,
-               ...)
-
-  circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) {
-    xlim = get.cell.meta.data("xlim")
-    ylim = get.cell.meta.data("ylim")
-    sector.name = get.cell.meta.data("sector.index")
-    circos.text(mean(xlim), ylim[1],
-                sector.name,
-                facing = "clockwise",
-                niceFacing = TRUE,
-                adj = c(0.3, 0.3),
-                cex = 0.8)
+    circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) {
+      xlim = get.cell.meta.data("xlim")
+      ylim = get.cell.meta.data("ylim")
+      sector.name = get.cell.meta.data("sector.index")
+      circos.text(mean(xlim), ylim[1],
+                  sector.name,
+                  facing = "clockwise",
+                  niceFacing = TRUE,
+                  adj = c(0.3, 0.3),
+                  cex = 0.8)
     }
     , bg.border = NA)
-  #Add heatmap to chord diagram
-  col_fun = colorRamp2(hic.range,
-                       c("white", "red"))
 
-  tab1 <- heatmap[order(heatmap$mark1,rev(heatmap$mark2)),]
-  tab1[is.na(tab1)] <- 0
-  tab2 <- heatmap[order(heatmap$mark2,rev(heatmap$mark1)),]
-  tab2[is.na(tab2)] <- 0
-  tab3 <- tab1[,c(2,1,3:6)]
-  colnames(tab3) [1] <- "mark1"
-  colnames(tab3) [2] <- "mark2"
-  tab3$Freq <- 0
-  tab3$Avg.Score <- hic.range[1]
-  tab3$logFPKM1 <- 0
-  tab3$logFPKM2 <- 0
-  tab1 <- rbind(tab1, tab3)
-  tab2 <- rbind(tab2, tab3)
+    # Filter bu hic.range
 
-  circos.trackPlotRegion(ylim = c(0, 3),
-                         circos.par("track.height" = 0.01),
-                         bg.border = NA,
-                         track.index = 3,
-                         panel.fun = function(x, y) {
-                           end <- 0
-                           sector = get.cell.meta.data("sector.index")
-                           aux.tab1 <- tab1[tab1$mark1 == sector,]
-                           aux.tab2 <- tab2[tab2$mark2 == sector,]
-                           col_tab1 = col_fun(aux.tab1$Avg.Score)
-                           col_tab2 = col_fun(aux.tab2$Avg.Score)
-                           for(i in 1:nrow(aux.tab1)){
-                             start <- end
-                             end <- end + aux.tab1[i,"Freq"]
-                             circos.rect(start, 0.01, end, 2,
-                                         border = col_tab1[i],
-                                         col = col_tab1[i],
-                                         sector.index = sector,
-                                         track.index = 3)
-                           }
-                           for(i in 1:nrow(aux.tab2)){
-                             start <- end
-                             end <- end + aux.tab2[i,"Freq"]
-                             circos.rect(start, 0.01, end, 2,
-                                         border = col_tab2[i],
-                                         col = col_tab2[i],
-                                         sector.index = sector,
-                                         track.index = 3)
-                           }
-                           end <- 0
-                         })
 
-  col_fun2 = colorRamp2(rna.range,
-                        c("white", "black"))
+    # Add heatmap to chord diagram
+    col_fun = colorRamp2(hic.range,
+                         c("white", "red"))
 
-  circos.trackPlotRegion(ylim = c(0, 3),
-                         circos.par("track.height" = 0.01),
-                         bg.border = NA,
-                         track.index = 2,
-                         panel.fun = function(x, y) {
-                           end <- 0
-                           sector = get.cell.meta.data("sector.index")
-                           aux.tab1 <- tab1[tab1$mark1 == sector,]
-                           aux.tab2 <- tab2[tab2$mark2 == sector,]
-                           col_tab1 = col_fun2(aux.tab1$logFPKM1)
-                           col_tab2 = col_fun2(aux.tab2$logFPKM2)
-                           for(i in 1:nrow(aux.tab1)){
-                             start <- end
-                             end <- end + aux.tab1[i,"Freq"]
-                             circos.rect(start, -0.9, end, 1.3,
-                                         border = col_tab1[i],
-                                         col = col_tab1[i],
-                                         sector.index = sector,
-                                         track.index = 2)
-                           }
-                           for(i in 1:nrow(aux.tab2)){
-                             start <- end
-                             end <- end + aux.tab2[i,"Freq"]
-                             circos.rect(start, -0.9, end, 1.3,
-                                         border = col_tab2[i],
-                                         col = col_tab2[i],
-                                         sector.index = sector,
-                                         track.index = 2)
-                           }
-                           end <- 0
-                         })
+    tab1 <- heatmap[order(heatmap$mark1,rev(heatmap$mark2)),]
+    tab1[is.na(tab1)] <- 0
+    tab2 <- heatmap[order(heatmap$mark2,rev(heatmap$mark1)),]
+    tab2[is.na(tab2)] <- 0
+    tab3 <- tab1[,c(2,1,3,4)]
+    colnames(tab3) [1] <- "mark1"
+    colnames(tab3) [2] <- "mark2"
+    tab3$Freq <- 0
+    tab1 <- rbind(tab1, tab3)
+    tab2 <- rbind(tab2, tab3)
+
+    circos.trackPlotRegion(ylim = c(0, 3),
+                           circos.par("track.height" = 0.01),
+                           bg.border = NA,
+                           track.index = 2,
+                           panel.fun = function(x, y) {
+                             end <- 0
+                             sector = get.cell.meta.data("sector.index")
+                             aux.tab1 <- tab1[tab1$mark1 == sector,]
+                             aux.tab2 <- tab2[tab2$mark2 == sector,]
+                             col_tab1 = col_fun(aux.tab1$Avg.Score)
+                             col_tab2 = col_fun(aux.tab2$Avg.Score)
+                             for(i in 1:nrow(aux.tab1)){
+                               start <- end
+                               end <- end + aux.tab1[i,"Freq"]
+                               circos.rect(start, 0, end, 2,
+                                           border = col_tab1[i],
+                                           col = col_tab1[i],
+                                           sector.index = sector,
+                                           track.index = 2)
+                             }
+                             for(i in 1:nrow(aux.tab2)){
+                               start <- end
+                               end <- end + aux.tab2[i,"Freq"]
+                               circos.rect(start, 0, end, 2,
+                                           border = col_tab2[i],
+                                           col = col_tab2[i],
+                                           sector.index = sector,
+                                           track.index = 2)
+                             }
+                             end <- 0
+                           })
+  }
+  else {
+    #Draw chord diagram
+    FPKM1score <- aggregate(logFPKM1~mark1 + mark2, data = datatable, FUN = mean)
+    FPKM2score <- aggregate(logFPKM2~mark1 + mark2, data = datatable, FUN = mean)
+    heatmap <- left_join(heatmap, FPKM1score, by = c("mark1", "mark2"))
+    heatmap <- left_join(heatmap, FPKM2score, by = c("mark1", "mark2"))
+    circos.clear()
+    par(pty="s")
+    circos.par(points.overflow.warning=FALSE,
+               track.margin = c(0, 0))
+
+    chordDiagram(circosR,
+                 circos.par(track.margin = c(0.005, 0.005)),
+                 grid.col = circos.color,
+                 annotationTrack = "grid",
+                 preAllocateTracks = 3,
+                 ...)
+
+    circos.trackPlotRegion(track.index = 1, panel.fun = function(x, y) {
+      xlim = get.cell.meta.data("xlim")
+      ylim = get.cell.meta.data("ylim")
+      sector.name = get.cell.meta.data("sector.index")
+      circos.text(mean(xlim), ylim[1],
+                  sector.name,
+                  facing = "clockwise",
+                  niceFacing = TRUE,
+                  adj = c(0.3, 0.3),
+                  cex = 0.8)
+    }
+    , bg.border = NA)
+    #Add heatmap to chord diagram
+    col_fun = colorRamp2(hic.range,
+                         c("white", "red"))
+
+    tab1 <- heatmap[order(heatmap$mark1,rev(heatmap$mark2)),]
+    tab1[is.na(tab1)] <- 0
+    tab2 <- heatmap[order(heatmap$mark2,rev(heatmap$mark1)),]
+    tab2[is.na(tab2)] <- 0
+    tab3 <- tab1[,c(2,1,3:6)]
+    colnames(tab3) [1] <- "mark1"
+    colnames(tab3) [2] <- "mark2"
+    tab3$Freq <- 0
+    tab3$Avg.Score <- hic.range[1]
+    tab3$logFPKM1 <- 0
+    tab3$logFPKM2 <- 0
+    tab1 <- rbind(tab1, tab3)
+    tab2 <- rbind(tab2, tab3)
+
+    circos.trackPlotRegion(ylim = c(0, 3),
+                           circos.par("track.height" = 0.01),
+                           bg.border = NA,
+                           track.index = 3,
+                           panel.fun = function(x, y) {
+                             end <- 0
+                             sector = get.cell.meta.data("sector.index")
+                             aux.tab1 <- tab1[tab1$mark1 == sector,]
+                             aux.tab2 <- tab2[tab2$mark2 == sector,]
+                             col_tab1 = col_fun(aux.tab1$Avg.Score)
+                             col_tab2 = col_fun(aux.tab2$Avg.Score)
+                             for(i in 1:nrow(aux.tab1)){
+                               start <- end
+                               end <- end + aux.tab1[i,"Freq"]
+                               circos.rect(start, 0.01, end, 2,
+                                           border = col_tab1[i],
+                                           col = col_tab1[i],
+                                           sector.index = sector,
+                                           track.index = 3)
+                             }
+                             for(i in 1:nrow(aux.tab2)){
+                               start <- end
+                               end <- end + aux.tab2[i,"Freq"]
+                               circos.rect(start, 0.01, end, 2,
+                                           border = col_tab2[i],
+                                           col = col_tab2[i],
+                                           sector.index = sector,
+                                           track.index = 3)
+                             }
+                             end <- 0
+                           })
+
+    col_fun2 = colorRamp2(rna.range,
+                          c("white", "black"))
+
+    circos.trackPlotRegion(ylim = c(0, 3),
+                           circos.par("track.height" = 0.01),
+                           bg.border = NA,
+                           track.index = 2,
+                           panel.fun = function(x, y) {
+                             end <- 0
+                             sector = get.cell.meta.data("sector.index")
+                             aux.tab1 <- tab1[tab1$mark1 == sector,]
+                             aux.tab2 <- tab2[tab2$mark2 == sector,]
+                             col_tab1 = col_fun2(aux.tab1$logFPKM1)
+                             col_tab2 = col_fun2(aux.tab2$logFPKM2)
+                             for(i in 1:nrow(aux.tab1)){
+                               start <- end
+                               end <- end + aux.tab1[i,"Freq"]
+                               circos.rect(start, -0.9, end, 1.3,
+                                           border = col_tab1[i],
+                                           col = col_tab1[i],
+                                           sector.index = sector,
+                                           track.index = 2)
+                             }
+                             for(i in 1:nrow(aux.tab2)){
+                               start <- end
+                               end <- end + aux.tab2[i,"Freq"]
+                               circos.rect(start, -0.9, end, 1.3,
+                                           border = col_tab2[i],
+                                           col = col_tab2[i],
+                                           sector.index = sector,
+                                           track.index = 2)
+                             }
+                             end <- 0
+                           })
   }
 
   hiccolor <- color.gradient(c(1,1), c(1,0), c(1,0), nslices = 200)
@@ -304,5 +342,4 @@ circleplot <- function(datatable,
                  rect.col= hiccolor)
     text(0.74, -1.045, labels = hic.legend)
   }
-
 }

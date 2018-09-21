@@ -5,7 +5,7 @@
 \title{Generate circos plots from overlap data output}
 \usage{
 circleplot(datatable, plot.subset = FALSE, display.legend = TRUE,
-  hic.legend = "Avg. Hi-C Score", hic.range = c(0, 130),
+  hic.legend = "Avg. Hi-C Score", hic.range = NULL, region = NULL,
   rna.legend = "Avg. log(FPKM)", rna.range = c(0, 3.2),
   circos.color = NULL, ...)
 }

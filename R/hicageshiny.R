@@ -3,6 +3,7 @@
 #' @import shiny
 #' @import shinydashboard
 #' @importFrom readr read_tsv
+#' @importFrom shinyBS bsTooltip
 #' @export
 #' @return When run, function will launch the HiCAGE Shiny application - a GUI
 #' for user-friendly implementation of HiCAGE
@@ -41,8 +42,8 @@ hicageshiny <- function() {
                     menuItem("Gene List", tabName = "genelisttab", icon = icon("exchange")),
                     menuItem("GO Analysis", tabName = "goanalysistab", icon = icon("cogs")),
                     menuItem(actionButton('goButton', "Run HiCAGE"))
-                                     )
-                    ),
+        )
+      ),
       dashboardBody(
         tags$head(
           tags$style(HTML('
@@ -74,7 +75,7 @@ hicageshiny <- function() {
                                    'Order' for the Hi-C, Segmentation, and RNA-seq files using the sidebar
                                    (default values may not be appropriate for your data structure)"))),
                   helpText(h4(list(em("Step 4"), "- Run", em("HiCAGE"))))
-                  ),
+          ),
 
           tabItem(tabName = "hicdatatab",
                   dataTableOutput('contents')),
@@ -86,24 +87,31 @@ hicageshiny <- function() {
                   dataTableOutput('finaldata'),
                   downloadButton('downloadData', 'Download')),
           tabItem(tabName = "circosplottab",
-                  plotOutput('circosplot'),
-                  fluidRow(column(3, sliderInput("hicscale",
-                                                 "Hi-C Score Range:",
-                                                 min = 0,
-                                                 max = 1000,
-                                                 value = c(0, 100),
-                                                 step = 10)),
-                           column(4,
-                                  sliderInput(
-                                    "rnascale",
-                                    "RNA Expression Range:",
-                                    min = 0,
-                                    max = 20,
-                                    value = c(0, 5),
-                                    step = 0.5)),
-                           column(4,
-                                  actionButton("reload", "Reload"))),
-                  downloadButton('downloadCircos', 'Download')),
+                  mainPanel(
+                    plotOutput('circosplot')
+                  ),
+                  sidebarPanel(
+                    sliderInput(
+                      "hicscale",
+                      "Hi-C Score Range:",
+                      min = 0,
+                      max = 1000,
+                      value = c(0, 100),
+                      step = 10),
+                    textInput("genomicRegion",
+                              label = h3("Genomic Region"),
+                              value = NULL),
+                    bsTooltip("genomicRegion", "i.e. chr20:2150000-25030000"),
+                    sliderInput(
+                      "rnascale",
+                      "RNA Expression Range:",
+                      min = 0,
+                      max = 20,
+                      value = c(0, 5),
+                      step = 0.5),
+                    actionButton("reload", "Plot"),
+                    downloadButton('downloadCircos', 'Download'))
+          ),
           tabItem(tabName = "upsetplottab",
                   plotOutput('upsetplot'),
                   tags$script("$(document).on('shiny:connected',
@@ -131,9 +139,9 @@ hicageshiny <- function() {
           tabItem(tabName = "goanalysistab",
                   dataTableOutput('godata'),
                   downloadButton('downloadgo', 'Download'))
-                  )
-                  )
-        )),
+        )
+      )
+    )),
 
     server = function(input, output, session) {  #Load Hi-C data file
       output$contents <- renderDataTable({
@@ -147,20 +155,40 @@ hicageshiny <- function() {
                  guess_max = 100000)
       })
 
-      #Load Segmentation data file
-      output$contents2 <- renderDataTable({
+
+
+      #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=
+      # Data input: segment data
+      #=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=
+      segmentdata <-  reactive({
         inFile2 <- input$segmentdata
-
-        if (is.null(inFile2))
-          return(NULL)
-
-        read_tsv(inFile2$datapath,
-                 col_names = FALSE,
-                 comment = "#",
-                 skip = 1)
+        data <- read_tsv(inFile2$datapath,
+                         col_names = FALSE,
+                         comment = "#",
+                         skip = 1)
+        return(data)
       })
 
-      #Load RNA-seq data file
+      # Load Segmentation data file
+      output$contents2 <- renderDataTable({
+        segmentdata()
+      })
+
+
+      observeEvent(input$segmentdata, {
+        data <- segmentdata()
+        if(!is.null(data)){
+          print(head(data))
+          print(max(as.numeric(data$X5)))
+          updateSliderInput(session, "hicscale",
+                            value =  c(min(as.numeric(data$X5)),max(as.numeric(data$X5))),
+                            min = min(as.numeric(data$X5)),
+                            max =  max(as.numeric(data$X5))
+          )
+        }
+      })
+
+      # Load RNA-seq data file
       output$contents3 <- renderDataTable({
         inFile3 <- input$rnadata
 
@@ -257,6 +285,7 @@ hicageshiny <- function() {
             circleplot(get.overlaps(),
                        plot.subset = plotsub,
                        hic.range = c(input$hicscale),
+                       region = c(input$genomicRegion),
                        rna.range = c(input$rnascale))
           })
         })
@@ -283,6 +312,7 @@ hicageshiny <- function() {
             circleplot(get.overlaps(),
                        plot.subset = plotsub,
                        hic.range = c(input$hicscale),
+                       region = c(input$genomicRegion),
                        rna.range = c(input$rnascale))
             dev.off()},
           contentType = 'image/png')
